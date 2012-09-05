@@ -79,3 +79,17 @@ How to identify if your uvc camera support still image capture?
 lsusb -v -d xxxx:xxxx
 
 Find STILL_IMAGE_FRAME in the output, if found, it does, else not.
+
+Atuhors
+=======
+
+* Yang Hong - Implement still image capture
+* Liu Shouyong - Tips and initial still probe/commit code
+
+Links
+=====
+
+* V4L2 API - http://linuxtv.org/downloads/v4l-dvb-apis/
+* Linux UVC driver & tools - http://www.ideasonboard.org/uvc/
+* Maillist - linux-uvc-devel@lists.sourceforge.net
+* Maillist subscribe - https://lists.sourceforge.net/lists/listinfo/linux-uvc-devel
