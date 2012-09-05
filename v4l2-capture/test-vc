@@ -1,0 +1,8 @@
+#!/bin/sh
+
+./vc -c 2
+
+dmesg | grep uvcvideo > log
+
+#cat log | grep -v VIDIOC_ENUM_FRAME | grep -v _QUERYBUF | grep -v uvc_v4l2_mmap | tail -35
+
