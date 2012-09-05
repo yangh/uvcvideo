@@ -5,15 +5,11 @@ uvcvideo driver with still image capture support
 
 * The base is kernel 2.6.35.7
 
-* Picked some fixes from upstrea
+* Picked some fixes from upstream (see list in uvc/merged-upstream-patches)
 
 * Make it possible to build out side the kernel source tree.
 
-  $> make
-
-* Also and build in your Android enviroment with
-
-  $> make -f Makefile.android
+* Also cand build in your Android enviroment
 
 Background
 ==========
@@ -61,6 +57,29 @@ Implementation
 * Parse still image frame in the decode_isoc start/data/end func (decode_bulk
   not support yet), and send out finished buffer with a frame.
 
+Build driver
+============
+
+build for you pc
+
+```
+ cd uvc
+ make
+ make test
+```
+
+build for your android
+
+```
+ # Setup your android env first
+ cd uvc
+ make -f Makefile.android
+ adb push uvcvideo.ko /data/
+ adb shell rmmod uvcvideo
+ adb shell insmod /data/uvcvideo.ko
+#adb shell "echo 2047 > /sys/module/uvcvideo/parameters/trace"
+```
+
 User space tool
 ===============
 
@@ -69,7 +88,10 @@ I've successfully captured still image on a live preview stream (I wrote a
 tool to convert yuv422 raw data into png, and use it to verify the captured
 still image).
 
-My uvc camera is a Vimicro vc0346 (UVC ic) + Aptina mt9p111 5M sensor.
+```
+ $> cd v4l2-capture
+ $> make
+```
 
 FAQ
 ===
