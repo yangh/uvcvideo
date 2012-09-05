@@ -1,0 +1,12 @@
+#!/bin/sh
+
+lsmod | grep ^uvcvideo >/dev/null && rmmod uvcvideo
+
+insmod ./uvcvideo.ko
+
+echo 2047 > /sys/module/uvcvideo/parameters/trace
+echo 127 > /sys/module/videodev/parameters/debug
+
+dmesg | tail -6
+
+exit 0

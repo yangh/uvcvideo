@@ -1,0 +1,12 @@
+obj-m := uvcvideo.o
+uvcvideo-objs  := uvc_driver.o uvc_queue.o uvc_v4l2.o uvc_video.o uvc_ctrl.o \
+		  uvc_status.o uvc_isight.o
+
+KVERSION := $(ANDROID_PRODUCT_OUT)/obj/KERNEL_OBJ
+
+all:
+	            make ARCH=arm CROSS_COMPILE=arm-eabi- -C $(KVERSION) M=$(PWD) modules
+clean:
+	            make -C $(KVERSION) M=$(PWD) clean
+
+
