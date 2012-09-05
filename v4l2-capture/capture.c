@@ -58,12 +58,18 @@ static unsigned int capture_idx = 0;
 
 #define MAX_STILL_WIDTH			1600
 #define MAX_STILL_HEIGHT		1200
+#define CAPTURE_INTERVAL		10
+
 static int sw = 1600;
 static int sh = 1200;
+static int still_size_fixed = 0;
+
 struct buffer *still_buffers = NULL;
 static unsigned int still_n_buffers = 0;
 static int still_count = 0;
 static int still_inited = 0;
+static int still_dump_file = 0;
+static int still_capture_interval = CAPTURE_INTERVAL;
 
 static struct size still_size[] = {
 	{ 1600 , 1200 },
@@ -167,9 +173,12 @@ static int snapshot(void)
 	struct v4l2_buffer buf;
 	int idx;
 
-	idx = still_count % ARRAY_LEN(still_size);
-
-	still_init(still_size[idx].width, still_size[idx].height);
+	if (still_size_fixed) {
+		still_init(sw, sh);
+	} else {
+		idx = still_count % ARRAY_LEN(still_size);
+		still_init(still_size[idx].width, still_size[idx].height);
+	}
 
 	CLEAR(buf);
 
@@ -196,8 +205,11 @@ static int snapshot(void)
 
 	fputc('A', stdout);
 	fflush(stdout);
-	dump_raw_to_file(still_buffers[buf.index].start,
-			 still_buffers[buf.index].length);
+
+	if (still_dump_file) {
+		dump_raw_to_file(still_buffers[buf.index].start,
+				still_buffers[buf.index].length);
+	}
 
 	still_count++;
 
@@ -265,7 +277,7 @@ static int read_frame(void)
 		if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
 
-		if ((capture_idx % 10) == 0) {
+		if ((capture_idx % still_capture_interval) == 0) {
 			snapshot();
 		}
 
@@ -833,12 +845,14 @@ static void usage(FILE * fp, int argc, char **argv)
 		"-m | --mmap          Use memory mapped buffers\n"
 		"-r | --read          Use read() calls\n"
 		"-u | --userp         Use application allocated buffers\n"
+		"-i | --si            Still image capture interval\n"
+		"-s | --ss            Save Still raw image\n"
 		"-x | --sw            Still image width\n"
 		"-y | --sh            Still image height\n"
 		"", argv[0]);
 }
 
-static const char short_options[] = "d:c:hmrux:y:";
+static const char short_options[] = "d:c:hmrui:sx:y:";
 
 static const struct option long_options[] = {
 	{"device", required_argument, NULL, 'd'},
@@ -847,6 +861,8 @@ static const struct option long_options[] = {
 	{"mmap", no_argument, NULL, 'm'},
 	{"read", no_argument, NULL, 'r'},
 	{"userp", no_argument, NULL, 'u'},
+	{"si", required_argument, NULL, 'i'},
+	{"ss", no_argument, NULL, 's'},
 	{"sw", required_argument, NULL, 'x'},
 	{"sh", required_argument, NULL, 'y'},
 	{0, 0, 0, 0}
@@ -896,14 +912,29 @@ int main(int argc, char **argv)
 			io = IO_METHOD_USERPTR;
 			break;
 
+		case 'i':
+			value = atoi(optarg);
+			still_capture_interval = value > 0 ? value : CAPTURE_INTERVAL;
+			break;
+
+		case 's':
+			still_dump_file = 1;
+			break;
+
 		case 'x':
 			value = atoi(optarg);
-			sw = value > 0 ? value : MAX_STILL_WIDTH;
+			if (value > 0) {
+				sw = value;
+				still_size_fixed = 1;
+			}
 			break;
 
 		case 'y':
 			value = atoi(optarg);
-			sh = value > 0 ? value : MAX_STILL_HEIGHT;
+			if (value > 0) {
+				sh = value;
+				still_size_fixed = 1;
+			}
 			break;
 
 		default:

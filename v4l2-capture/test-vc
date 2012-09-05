@@ -1,8 +1,9 @@
 #!/bin/sh
 
-./vc -c 2
+# Capture 10 preview frames,
+# Capture still image (1600x1200) after every 5 preview frames
+./vc -c 10 -i 5 -x 1600 -y 1200
 
-dmesg | grep uvcvideo > log
-
+#dmesg | grep uvcvideo > log
 #cat log | grep -v VIDIOC_ENUM_FRAME | grep -v _QUERYBUF | grep -v uvc_v4l2_mmap | tail -35
 
