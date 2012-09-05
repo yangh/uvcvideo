@@ -20,7 +20,7 @@ Background
 
 What's still image capture in UVC?
 
-Refer to the UVC 1.1 spec [1], 2.4.2.4 Still Image Capture, page 14.
+Refer to the USB Video Class 1.1 spec, 2.4.2.4 Still Image Capture, page 14.
 
 End user's view: it's means you can capture a still image with different
 size to the current preview size. e.g preview in 800x600, but you wanna
@@ -93,3 +93,4 @@ Links
 * Linux UVC driver & tools - http://www.ideasonboard.org/uvc/
 * Maillist - linux-uvc-devel@lists.sourceforge.net
 * Maillist subscribe - https://lists.sourceforge.net/lists/listinfo/linux-uvc-devel
+* USB Video Class Specs - http://www.usb.org/developers/devclass_docs/USB_Video_Class_1_1_090711.zip
