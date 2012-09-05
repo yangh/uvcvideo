@@ -1,0 +1,43 @@
+From 8ca2c80b170c47eeb55f0c2a0f2b8edf85f35d49 Mon Sep 17 00:00:00 2001
+From: Sjoerd Simons <sjoerd.simons@collabora.co.uk>
+Date: Tue, 24 May 2011 12:22:03 -0300
+Subject: [PATCH 1/2] [media] uvcvideo: Remove buffers from the queues when freeing
+
+When freeing memory for the video buffers also remove them from the
+irq & main queues.
+
+This fixes an oops when doing the following:
+
+open ("/dev/video", ..)
+VIDIOC_REQBUFS
+VIDIOC_QBUF
+VIDIOC_REQBUFS
+close ()
+
+As the second VIDIOC_REQBUFS will cause the list entries of the buffers
+to be cleared while they still hang around on the main and irc queues
+
+Signed-off-by: Sjoerd Simons <sjoerd.simons@collabora.co.uk>
+Acked-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Cc: stable@kernel.org
+Signed-off-by: Mauro Carvalho Chehab <mchehab@redhat.com>
+---
+ uvc_queue.c |    2 ++
+ 1 files changed, 2 insertions(+), 0 deletions(-)
+
+diff --git a/uvc_queue.c b/uvc_queue.c
+index 109a063..f90ce9f 100644
+--- a/uvc_queue.c
++++ b/uvc_queue.c
+@@ -104,6 +104,8 @@ static int __uvc_free_buffers(struct uvc_video_queue *queue)
+ 	}
+ 
+ 	if (queue->count) {
++		uvc_queue_cancel(queue, 0);
++		INIT_LIST_HEAD(&queue->mainqueue);
+ 		vfree(queue->mem);
+ 		queue->count = 0;
+ 	}
+-- 
+1.7.1
+

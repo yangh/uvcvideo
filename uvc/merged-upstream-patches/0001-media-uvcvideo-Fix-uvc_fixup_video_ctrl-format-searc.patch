@@ -1,0 +1,50 @@
+From 38a66824d96de8aeeb915e6f46f0d3fe55828eb1 Mon Sep 17 00:00:00 2001
+From: Stephan Lachowsky <stephan.lachowsky@maxim-ic.com>
+Date: Thu, 27 Jan 2011 23:04:33 -0300
+Subject: [PATCH] [media] uvcvideo: Fix uvc_fixup_video_ctrl() format search
+
+The scheme used to index format in uvc_fixup_video_ctrl() is not robust:
+format index is based on descriptor ordering, which does not necessarily
+match bFormatIndex ordering.  Searching for first matching format will
+prevent uvc_fixup_video_ctrl() from using the wrong format/frame to make
+adjustments.
+
+Signed-off-by: Stephan Lachowsky <stephan.lachowsky@maxim-ic.com>
+Cc: stable@kernel.org
+Signed-off-by: Mauro Carvalho Chehab <mchehab@redhat.com>
+---
+ uvc_video.c |   14 +++++++++-----
+ 1 files changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/uvc_video.c b/uvc_video.c
+index 5673d67..545c029 100644
+--- a/uvc_video.c
++++ b/uvc_video.c
+@@ -89,15 +89,19 @@ int uvc_query_ctrl(struct uvc_device *dev, __u8 query, __u8 unit,
+ static void uvc_fixup_video_ctrl(struct uvc_streaming *stream,
+ 	struct uvc_streaming_control *ctrl)
+ {
+-	struct uvc_format *format;
++	struct uvc_format *format = NULL;
+ 	struct uvc_frame *frame = NULL;
+ 	unsigned int i;
+ 
+-	if (ctrl->bFormatIndex <= 0 ||
+-	    ctrl->bFormatIndex > stream->nformats)
+-		return;
++	for (i = 0; i < stream->nformats; ++i) {
++		if (stream->format[i].index == ctrl->bFormatIndex) {
++			format = &stream->format[i];
++			break;
++		}
++	}
+ 
+-	format = &stream->format[ctrl->bFormatIndex - 1];
++	if (format == NULL)
++		return;
+ 
+ 	for (i = 0; i < format->nframes; ++i) {
+ 		if (format->frame[i].bFrameIndex == ctrl->bFrameIndex) {
+-- 
+1.7.1
+

@@ -1,0 +1,35 @@
+From aa122d424b14b4a4c5ba302e668366717e9cac7b Mon Sep 17 00:00:00 2001
+From: Sjoerd Simons <sjoerd.simons@collabora.co.uk>
+Date: Mon, 30 May 2011 15:02:00 -0300
+Subject: [PATCH 2/2] [media] uvcvideo: Disable the queue when failing to start
+
+When failing to start the camera we should disable the queue again, to
+rollback into the same initial state. Otherwise re-trying will always
+hit -EBUSY
+
+Signed-off-by: Sjoerd Simons <sjoerd.simons@collabora.co.uk>
+Acked-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Mauro Carvalho Chehab <mchehab@redhat.com>
+---
+ uvc_video.c |    4 +++-
+ 1 files changed, 3 insertions(+), 1 deletions(-)
+
+diff --git a/uvc_video.c b/uvc_video.c
+index fc766b9..4999479 100644
+--- a/uvc_video.c
++++ b/uvc_video.c
+@@ -1255,8 +1255,10 @@ int uvc_video_enable(struct uvc_streaming *stream, int enable)
+ 
+ 	/* Commit the streaming parameters. */
+ 	ret = uvc_commit_video(stream, &stream->ctrl);
+-	if (ret < 0)
++	if (ret < 0) {
++		uvc_queue_enable(&stream->queue, 0);
+ 		return ret;
++	}
+ 
+ 	return uvc_init_video(stream, GFP_KERNEL);
+ }
+-- 
+1.7.1
+

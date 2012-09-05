@@ -1,0 +1,54 @@
+From 0b21d55f8904ff3d52262e91867f9eb2c0b472f3 Mon Sep 17 00:00:00 2001
+From: Julia Lawall <julia@diku.dk>
+Date: Thu, 1 Jul 2010 01:33:15 -0300
+Subject: [PATCH] V4L/DVB: drivers/media/video/uvc: Use kmemdup
+
+Use kmemdup when some other buffer is immediately copied into the
+allocated region.
+
+A simplified version of the semantic patch that makes this change is as
+follows: (http://coccinelle.lip6.fr/)
+
+// <smpl>
+@@
+expression from,to,size,flag;
+statement S;
+@@
+
+-  to = \(kmalloc\|kzalloc\)(size,flag);
++  to = kmemdup(from,size,flag);
+   if (to==NULL || ...) S
+-  memcpy(to, from, size);
+// </smpl>
+
+Signed-off-by: Julia Lawall <julia@diku.dk>
+Signed-off-by: Douglas Schilling Landgraf <dougsland@redhat.com>
+Signed-off-by: Mauro Carvalho Chehab <mchehab@redhat.com>
+---
+ uvc_driver.c |    5 ++---
+ 1 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/uvc_driver.c b/uvc_driver.c
+index 838b56f..45aac10 100644
+--- a/uvc_driver.c
++++ b/uvc_driver.c
+@@ -637,14 +637,13 @@ static int uvc_parse_streaming(struct uvc_device *dev,
+ 	}
+ 	streaming->header.bControlSize = n;
+ 
+-	streaming->header.bmaControls = kmalloc(p*n, GFP_KERNEL);
++	streaming->header.bmaControls = kmemdup(&buffer[size], p * n,
++						GFP_KERNEL);
+ 	if (streaming->header.bmaControls == NULL) {
+ 		ret = -ENOMEM;
+ 		goto error;
+ 	}
+ 
+-	memcpy(streaming->header.bmaControls, &buffer[size], p*n);
+-
+ 	buflen -= buffer[0];
+ 	buffer += buffer[0];
+ 
+-- 
+1.7.1
+

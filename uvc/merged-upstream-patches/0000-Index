@@ -1,0 +1,9 @@
+0001-V4L-DVB-drivers-media-video-uvc-Use-kmemdup.patch
+0001-media-uvcvideo-Generate-discontinuous-sequence-numbe.patch
+0001-media-uvcvideo-Move-mutex-lock-unlock-inside-uvc_fre.patch
+0002-media-uvcvideo-Move-mmap-handler-to-uvc_queue.c.patch
+0003-media-uvcvideo-Lock-stream-mutex-when-accessing-form.patch
+0001-media-uvcvideo-Fix-uvc_fixup_video_ctrl-format-searc.patch
+0001-media-uvcvideo-Remove-buffers-from-the-queues-when-f.patch
+0002-media-uvcvideo-Disable-the-queue-when-failing-to-sta.patch
+0001-media-uvcvideo-Fix-alternate-setting-selection.patch

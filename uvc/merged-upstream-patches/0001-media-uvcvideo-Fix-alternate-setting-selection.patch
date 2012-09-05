@@ -1,0 +1,32 @@
+From 4807063faa08f279b4ca9c2b1f0101a4670f7d43 Mon Sep 17 00:00:00 2001
+From: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Date: Thu, 21 Jun 2012 06:35:04 -0300
+Subject: [PATCH] [media] uvcvideo: Fix alternate setting selection
+
+The alternate setting number is not equal to the alternate setting index
+in the interface alternate settings table. Use the alternate setting
+number from the interface descriptor when calling usb_set_interface().
+
+Signed-off-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Ming Lei <ming.lei@canonical.com>
+Signed-off-by: Mauro Carvalho Chehab <mchehab@redhat.com>
+---
+ drivers/media/video/uvc/uvc_video.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/drivers/media/video/uvc/uvc_video.c b/drivers/media/video/uvc/uvc_video.c
+index 39f5c85..7ac4347 100644
+--- a/uvc_video.c
++++ b/uvc_video.c
+@@ -1598,7 +1598,7 @@ static int uvc_init_video(struct uvc_streaming *stream, gfp_t gfp_flags)
+ 			psize = le16_to_cpu(ep->desc.wMaxPacketSize);
+ 			psize = (psize & 0x07ff) * (1 + ((psize >> 11) & 3));
+ 			if (psize >= bandwidth && psize <= best_psize) {
+-				altsetting = i;
++				altsetting = alts->desc.bAlternateSetting;
+ 				best_psize = psize;
+ 				best_ep = ep;
+ 			}
+-- 
+1.7.1
+
