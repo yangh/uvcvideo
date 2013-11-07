@@ -2,17 +2,10 @@
 
 sudo dmesg -c > /dev/null
 
-X=2048
-Y=1536
-./vc -d /dev/video1 -c 10 -i 5 -s -x $X -y $Y $@
+X=1024
+Y=768
+./vc -d /dev/video1 -c 10 -i 5 -s -j -x $X -y $Y $@
 
 dmesg | grep uvcvideo > log
 
 #cat log | grep -v VIDIOC_ENUM_FRAME | grep -v _QUERYBUF | grep -v uvc_v4l2_mmap | tail -35
-
-cat > generate-image.sh <<EOF
-./camera-effect-test raw-5.still.yuv $X $Y 0 1
-eog out/Original.png
-EOF
-
-chmod +x generate-image.sh
