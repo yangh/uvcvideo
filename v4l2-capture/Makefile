@@ -1,10 +1,10 @@
 all: vc test
 
 vc: capture.c
-	gcc -Wall -o $@ $<
+	gcc -g -Wall -pthread -o $@ $<
 
 test:
-	./test-vc
+	sh test-vc
 
 clean:
 	rm -f vc

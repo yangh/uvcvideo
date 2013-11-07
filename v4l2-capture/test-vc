@@ -1,9 +1,18 @@
 #!/bin/sh
 
-# Capture 10 preview frames,
-# Capture still image (1600x1200) after every 5 preview frames
-./vc -c 10 -i 5 -x 1600 -y 1200
+sudo dmesg -c > /dev/null
 
-#dmesg | grep uvcvideo > log
+X=2048
+Y=1536
+./vc -d /dev/video1 -c 10 -i 5 -s -x $X -y $Y $@
+
+dmesg | grep uvcvideo > log
+
 #cat log | grep -v VIDIOC_ENUM_FRAME | grep -v _QUERYBUF | grep -v uvc_v4l2_mmap | tail -35
 
+cat > generate-image.sh <<EOF
+./camera-effect-test raw-5.still.yuv $X $Y 0 1
+eog out/Original.png
+EOF
+
+chmod +x generate-image.sh
