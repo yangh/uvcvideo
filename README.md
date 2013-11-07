@@ -3,7 +3,7 @@ uvcvideo
 
 uvcvideo driver with still image capture support
 
-* The base is kernel 2.6.35.7
+* The base is kernel 3.2
 
 * Picked some fixes from upstream (see list in uvc/merged-upstream-patches)
 
@@ -102,10 +102,17 @@ lsusb -v -d xxxx:xxxx
 
 Find STILL_IMAGE_FRAME in the output, if found, it does, else not.
 
+TODO
+====
+
+Implement this feature in sub device such as /dev/photo0, so that we don't
+need a magic number to identify if the IOCTRL is normal or for still image,
+the driver will more clean than the current implement.
+
 Atuhors
 =======
 
-* Yang Hong - Implement still image capture
+* Yang Hong - Implemented still image capture
 * Liu Shouyong - Tips and initial still probe/commit code
 
 Links
