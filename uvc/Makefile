@@ -1,18 +1,10 @@
-obj-m := uvcvideo.o
+KDIR ?= /lib/modules/`uname -r`/build
 
-uvcvideo-objs  := uvc_driver.o uvc_queue.o uvc_v4l2.o uvc_video.o uvc_ctrl.o \
-		  uvc_status.o uvc_isight.o
+default:
+	$(MAKE) -C $(KDIR) M=$$PWD
+	sudo sh test-uvc
 
-KVERSION := /lib/modules/$(shell uname -r)/build
-
-all: kmod
-
-kmod:
-	make -C $(KVERSION) M=$(PWD) modules
-
-test:
-	sudo ./test-uvc
-
+# Module specific targets
 clean:
-	make -C $(KVERSION) M=$(PWD) clean
+	make -C $(KDIR) M=$$PWD clean
 

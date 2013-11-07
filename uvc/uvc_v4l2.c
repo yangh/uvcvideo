@@ -1,8 +1,8 @@
 /*
  *      uvc_v4l2.c  --  USB Video Class driver - V4L2 API
  *
- *      Copyright (C) 2005-2009
- *          Laurent Pinchart (laurent.pinchart@skynet.be)
+ *      Copyright (C) 2005-2010
+ *          Laurent Pinchart (laurent.pinchart@ideasonboard.com)
  *
  *      This program is free software; you can redistribute it and/or modify
  *      it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
 #include <linux/wait.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
@@ -29,42 +29,69 @@
 #include "uvcvideo.h"
 
 /* ------------------------------------------------------------------------
+ * UVC ioctls
+ */
+static int uvc_ioctl_ctrl_map(struct uvc_video_chain *chain,
+	struct uvc_xu_control_mapping *xmap)
+{
+	struct uvc_control_mapping *map;
+	unsigned int size;
+	int ret;
+
+	map = kzalloc(sizeof *map, GFP_KERNEL);
+	if (map == NULL)
+		return -ENOMEM;
+
+	map->id = xmap->id;
+	memcpy(map->name, xmap->name, sizeof map->name);
+	memcpy(map->entity, xmap->entity, sizeof map->entity);
+	map->selector = xmap->selector;
+	map->size = xmap->size;
+	map->offset = xmap->offset;
+	map->v4l2_type = xmap->v4l2_type;
+	map->data_type = xmap->data_type;
+
+	switch (xmap->v4l2_type) {
+	case V4L2_CTRL_TYPE_INTEGER:
+	case V4L2_CTRL_TYPE_BOOLEAN:
+	case V4L2_CTRL_TYPE_BUTTON:
+		break;
+
+	case V4L2_CTRL_TYPE_MENU:
+		size = xmap->menu_count * sizeof(*map->menu_info);
+		map->menu_info = kmalloc(size, GFP_KERNEL);
+		if (map->menu_info == NULL) {
+			ret = -ENOMEM;
+			goto done;
+		}
+
+		if (copy_from_user(map->menu_info, xmap->menu_info, size)) {
+			ret = -EFAULT;
+			goto done;
+		}
+
+		map->menu_count = xmap->menu_count;
+		break;
+
+	default:
+		uvc_trace(UVC_TRACE_CONTROL, "Unsupported V4L2 control type "
+			  "%u.\n", xmap->v4l2_type);
+		ret = -ENOTTY;
+		goto done;
+	}
+
+	ret = uvc_ctrl_add_mapping(chain, map);
+
+done:
+	kfree(map->menu_info);
+	kfree(map);
+
+	return ret;
+}
+
+/* ------------------------------------------------------------------------
  * V4L2 interface
  */
-
-/*
- * Mapping V4L2 controls to UVC controls can be straighforward if done well.
- * Most of the UVC controls exist in V4L2, and can be mapped directly. Some
- * must be grouped (for instance the Red Balance, Blue Balance and Do White
- * Balance V4L2 controls use the White Balance Component UVC control) or
- * otherwise translated. The approach we take here is to use a translation
- * table for the controls that can be mapped directly, and handle the others
- * manually.
- */
-static int uvc_v4l2_query_menu(struct uvc_video_chain *chain,
-	struct v4l2_querymenu *query_menu)
-{
-	struct uvc_menu_info *menu_info;
-	struct uvc_control_mapping *mapping;
-	struct uvc_control *ctrl;
-	u32 index = query_menu->index;
-	u32 id = query_menu->id;
-
-	ctrl = uvc_find_control(chain, query_menu->id, &mapping);
-	if (ctrl == NULL || mapping->v4l2_type != V4L2_CTRL_TYPE_MENU)
-		return -EINVAL;
-
-	if (query_menu->index >= mapping->menu_count)
-		return -EINVAL;
-
-	memset(query_menu, 0, sizeof(*query_menu));
-	query_menu->id = id;
-	query_menu->index = index;
-
-	menu_info = &mapping->menu_info[query_menu->index];
-	strlcpy(query_menu->name, menu_info->name, sizeof query_menu->name);
-	return 0;
-}
 
 /*
  * Find the frame interval closest to the requested frame interval for the
@@ -575,12 +602,12 @@ static int uvc_v4l2_open(struct file *file)
 	uvc_trace(UVC_TRACE_CALLS, "uvc_v4l2_open\n");
 	stream = video_drvdata(file);
 
+	if (stream->dev->state & UVC_DEV_DISCONNECTED)
+		return -ENODEV;
+
 	ret = usb_autopm_get_interface(stream->dev->intf);
 	if (ret < 0)
 		return ret;
-
-	if (stream->dev->state & UVC_DEV_DISCONNECTED)
-		return -ENODEV;
 
 	/* Create the device handle. */
 	handle = kzalloc(sizeof *handle, GFP_KERNEL);
@@ -609,7 +636,7 @@ static int uvc_v4l2_open(struct file *file)
 
 static int uvc_v4l2_release(struct file *file)
 {
-	struct uvc_fh *handle = (struct uvc_fh *)file->private_data;
+	struct uvc_fh *handle = file->private_data;
 	struct uvc_streaming *stream = handle->stream;
 
 	uvc_trace(UVC_TRACE_CALLS, "uvc_v4l2_release\n");
@@ -641,7 +668,7 @@ static int uvc_v4l2_release(struct file *file)
 static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 {
 	struct video_device *vdev = video_devdata(file);
-	struct uvc_fh *handle = (struct uvc_fh *)file->private_data;
+	struct uvc_fh *handle = file->private_data;
 	struct uvc_video_chain *chain = handle->chain;
 	struct uvc_streaming *stream = handle->stream;
 	long ret = 0;
@@ -657,7 +684,7 @@ static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 		strlcpy(cap->card, vdev->name, sizeof cap->card);
 		usb_make_path(stream->dev->udev,
 			      cap->bus_info, sizeof(cap->bus_info));
-		cap->version = DRIVER_VERSION_NUMBER;
+		cap->version = LINUX_VERSION_CODE;
 		if (stream->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
 			cap->capabilities = V4L2_CAP_VIDEO_CAPTURE
 					  | V4L2_CAP_STREAMING;
@@ -715,7 +742,7 @@ static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 	}
 
 	case VIDIOC_QUERYMENU:
-		return uvc_v4l2_query_menu(chain, arg);
+		return uvc_query_v4l2_menu(chain, arg);
 
 	case VIDIOC_G_EXT_CTRLS:
 	{
@@ -1048,6 +1075,7 @@ static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 
 			if (ret < 0)
 				return ret;
+			uvc_mark_still_buffers(&stream->still_queue);
 			rb->count = ret;
 			ret = 0;
 			break;
@@ -1079,8 +1107,10 @@ static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 	{
 		struct v4l2_buffer *buf = arg;
 
-		if (IS_STILL_MAGIC(buf->reserved)) {
-			return uvc_query_buffer(&stream->still_queue, buf);
+		uvc_trace(UVC_TRACE_IOCTL, "QUERYBUF reserved: 0x%x\n", buf->flags);
+		if (IS_STILL_BUF(buf)) {
+			ret = uvc_query_buffer(&stream->still_queue, buf);
+			return ret;
 		}
 
 		if (buf->type != stream->type)
@@ -1096,11 +1126,11 @@ static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 	{
 		struct v4l2_buffer *buf = arg;
 
-		if (IS_STILL_MAGIC(buf->reserved)) {
+		if (IS_STILL_BUF(buf)) {
 			/* Clear still magic, so that we can distinguish it from
 			 * user space
 			 */
-			buf->reserved = 0;
+			buf->flags = 0;
 			ret = uvc_queue_buffer(&stream->still_queue, buf);
 			if (ret < 0)
 				return -ENOMEM;
@@ -1117,8 +1147,8 @@ static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 	{
 		struct v4l2_buffer *buf = arg;
 
-		if (IS_STILL_MAGIC(buf->reserved)) {
-#if 1
+		if (IS_STILL_BUF(buf)) {
+#if 0
 			/* Must commit still info, to get correct frame */
 			ret = uvc_commit_still(stream, &stream->still_ctrl);
 			if (ret < 0)
@@ -1192,73 +1222,15 @@ static long uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 		uvc_trace(UVC_TRACE_IOCTL, "Unsupported ioctl 0x%08x\n", cmd);
 		return -EINVAL;
 
-	/* Dynamic controls. */
-	case UVCIOC_CTRL_ADD:
-	{
-		struct uvc_xu_control_info *xinfo = arg;
-		struct uvc_control_info *info;
-
-		if (!capable(CAP_SYS_ADMIN))
-			return -EPERM;
-
-		info = kzalloc(sizeof *info, GFP_KERNEL);
-		if (info == NULL)
-			return -ENOMEM;
-
-		memcpy(info->entity, xinfo->entity, sizeof info->entity);
-		info->index = xinfo->index;
-		info->selector = xinfo->selector;
-		info->size = xinfo->size;
-		info->flags = xinfo->flags;
-
-		info->flags |= UVC_CONTROL_GET_MIN | UVC_CONTROL_GET_MAX |
-				UVC_CONTROL_GET_RES | UVC_CONTROL_GET_DEF;
-
-		ret = uvc_ctrl_add_info(info);
-		if (ret < 0)
-			kfree(info);
-		break;
-	}
-
 	case UVCIOC_CTRL_MAP:
-	{
-		struct uvc_xu_control_mapping *xmap = arg;
-		struct uvc_control_mapping *map;
+		return uvc_ioctl_ctrl_map(chain, arg);
 
-		if (!capable(CAP_SYS_ADMIN))
-			return -EPERM;
-
-		map = kzalloc(sizeof *map, GFP_KERNEL);
-		if (map == NULL)
-			return -ENOMEM;
-
-		map->id = xmap->id;
-		memcpy(map->name, xmap->name, sizeof map->name);
-		memcpy(map->entity, xmap->entity, sizeof map->entity);
-		map->selector = xmap->selector;
-		map->size = xmap->size;
-		map->offset = xmap->offset;
-		map->v4l2_type = xmap->v4l2_type;
-		map->data_type = xmap->data_type;
-
-		ret = uvc_ctrl_add_mapping(map);
-		if (ret < 0)
-			kfree(map);
-		break;
-	}
-
-	case UVCIOC_CTRL_GET:
-		return uvc_xu_ctrl_query(chain, arg, 0);
-
-	case UVCIOC_CTRL_SET:
-		return uvc_xu_ctrl_query(chain, arg, 1);
+	case UVCIOC_CTRL_QUERY:
+		return uvc_xu_ctrl_query(chain, arg);
 
 	default:
-		if ((ret = v4l_compat_translate_ioctl(file, cmd, arg,
-			uvc_v4l2_do_ioctl)) == -ENOIOCTLCMD)
-			uvc_trace(UVC_TRACE_IOCTL, "Unknown ioctl 0x%08x\n",
-				  cmd);
-		return ret;
+		uvc_trace(UVC_TRACE_IOCTL, "Unknown ioctl 0x%08x\n", cmd);
+		return -EINVAL;
 	}
 
 	return ret;
@@ -1285,17 +1257,17 @@ static ssize_t uvc_v4l2_read(struct file *file, char __user *data,
 
 static int uvc_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	struct uvc_fh *handle = (struct uvc_fh *)file->private_data;
+	struct uvc_fh *handle = file->private_data;
 	struct uvc_streaming *stream = handle->stream;
 
-	uvc_trace(UVC_TRACE_CALLS, "uvc_v4l2_mmap\n");
+	uvc_trace(UVC_TRACE_CALLS, "uvc_v4l2_mmap, vma size %lx\n", vma->vm_end - vma->vm_start);
 
 	return uvc_video_mmap(stream, vma);
 }
 
 static unsigned int uvc_v4l2_poll(struct file *file, poll_table *wait)
 {
-	struct uvc_fh *handle = (struct uvc_fh *)file->private_data;
+	struct uvc_fh *handle = file->private_data;
 	struct uvc_streaming *stream = handle->stream;
 
 	uvc_trace(UVC_TRACE_CALLS, "uvc_v4l2_poll\n");
@@ -1303,13 +1275,30 @@ static unsigned int uvc_v4l2_poll(struct file *file, poll_table *wait)
 	return uvc_queue_poll(&stream->queue, file, wait);
 }
 
+#ifndef CONFIG_MMU
+static unsigned long uvc_v4l2_get_unmapped_area(struct file *file,
+		unsigned long addr, unsigned long len, unsigned long pgoff,
+		unsigned long flags)
+{
+	struct uvc_fh *handle = file->private_data;
+	struct uvc_streaming *stream = handle->stream;
+
+	uvc_trace(UVC_TRACE_CALLS, "uvc_v4l2_get_unmapped_area\n");
+
+	return uvc_queue_get_unmapped_area(&stream->queue, pgoff);
+}
+#endif
+
 const struct v4l2_file_operations uvc_fops = {
 	.owner		= THIS_MODULE,
 	.open		= uvc_v4l2_open,
 	.release	= uvc_v4l2_release,
-	.ioctl		= uvc_v4l2_ioctl,
+	.unlocked_ioctl	= uvc_v4l2_ioctl,
 	.read		= uvc_v4l2_read,
 	.mmap		= uvc_v4l2_mmap,
 	.poll		= uvc_v4l2_poll,
+#ifndef CONFIG_MMU
+	.get_unmapped_area = uvc_v4l2_get_unmapped_area,
+#endif
 };
 

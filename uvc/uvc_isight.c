@@ -4,7 +4,7 @@
  *	Copyright (C) 2006-2007
  *		Ivan N. Zlatev <contact@i-nz.net>
  *	Copyright (C) 2008-2009
- *		Laurent Pinchart <laurent.pinchart@skynet.be>
+ *		Laurent Pinchart <laurent.pinchart@ideasonboard.com>
  *
  *      This program is free software; you can redistribute it and/or modify
  *      it under the terms of the GNU General Public License as published by
@@ -84,7 +84,7 @@ static int isight_decode(struct uvc_video_queue *queue, struct uvc_buffer *buf,
 	 */
 	if (!is_header) {
 		maxlen = buf->buf.length - buf->buf.bytesused;
-		mem = queue->mem + buf->buf.m.offset + buf->buf.bytesused;
+		mem = queue->mem + UVC_BUFF_OFFSET(buf->buf.m.offset) + buf->buf.bytesused;
 		nbytes = min(len, maxlen);
 		memcpy(mem, data, nbytes);
 		buf->buf.bytesused += nbytes;

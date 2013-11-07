@@ -1,8 +1,8 @@
 /*
  *      uvc_queue.c  --  USB Video Class driver - Buffers management
  *
- *      Copyright (C) 2005-2009
- *          Laurent Pinchart (laurent.pinchart@skynet.be)
+ *      Copyright (C) 2005-2010
+ *          Laurent Pinchart (laurent.pinchart@ideasonboard.com)
  *
  *      This program is free software; you can redistribute it and/or modify
  *      it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 #include <linux/videodev2.h>
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 
 #include "uvcvideo.h"
 
@@ -78,12 +78,14 @@
  *
  */
 
-void uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type)
+void uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type,
+		    int drop_corrupted)
 {
 	mutex_init(&queue->mutex);
 	spin_lock_init(&queue->irqlock);
 	INIT_LIST_HEAD(&queue->mainqueue);
 	INIT_LIST_HEAD(&queue->irqqueue);
+	queue->flags = drop_corrupted ? UVC_QUEUE_DROP_CORRUPTED : 0;
 	queue->type = type;
 }
 
@@ -183,6 +185,17 @@ int uvc_alloc_buffers(struct uvc_video_queue *queue, unsigned int nbuffers,
 done:
 	mutex_unlock(&queue->mutex);
 	return ret;
+}
+
+void uvc_mark_still_buffers(struct uvc_video_queue *queue)
+{
+	unsigned int i;
+
+	for (i = 0; i < queue->count; ++i) {
+		queue->buffer[i].buf.m.offset |= UVC_STILL_BUF_MASK;
+		uvc_trace(UVC_TRACE_VIDEO, "Marked as still buf offset: 0x%x\n",
+			queue->buffer[i].buf.m.offset);
+	}
 }
 
 /*
@@ -419,13 +432,18 @@ int uvc_queue_mmap(struct uvc_video_queue *queue, struct vm_area_struct *vma)
 
 	mutex_lock(&queue->mutex);
 
+	uvc_trace(UVC_TRACE_VIDEO, "queue mmap, vma vm_pgoff, %lx\n", vma->vm_pgoff);
 	for (i = 0; i < queue->count; ++i) {
 		buffer = &queue->buffer[i];
+		uvc_trace(UVC_TRACE_VIDEO, "buf.m.offset >> %d = %x\n", PAGE_SHIFT,
+				buffer->buf.m.offset >> PAGE_SHIFT);
 		if ((buffer->buf.m.offset >> PAGE_SHIFT) == vma->vm_pgoff)
 			break;
 	}
 
-	if (i == queue->count || size != queue->buf_size) {
+	uvc_trace(UVC_TRACE_VIDEO, "buf index %d, vma size %lx, buf size %x\n",
+		i, PAGE_ALIGN(size), queue->buf_size);
+	if (i == queue->count || PAGE_ALIGN(size) != queue->buf_size) {
 		ret = -EINVAL;
 		goto done;
 	}
@@ -436,7 +454,9 @@ int uvc_queue_mmap(struct uvc_video_queue *queue, struct vm_area_struct *vma)
 	 * check is enought.
 	 */
 	if (buffer->vma_use_count > 0 || vma->vm_ops == &uvc_vm_ops) {
-		uvc_trace(UVC_TRACE_VIDEO, "Ugly check point for vma mmap\n");
+		uvc_trace(UVC_TRACE_VIDEO, "Ugly check point for vma mmap, %p, "
+			   "use count %ld, equal uvc_vm_ops %d\n", vma,
+			   buffer->vma_use_count, vma->vm_ops == &uvc_vm_ops); 
 		ret = -EINVAL;
 		goto done;
 	}
@@ -447,7 +467,10 @@ int uvc_queue_mmap(struct uvc_video_queue *queue, struct vm_area_struct *vma)
 	 */
 	vma->vm_flags |= VM_IO;
 
-	addr = (unsigned long)queue->mem + buffer->buf.m.offset;
+	uvc_trace(UVC_TRACE_VIDEO, "Fixed still buff m.offset %x",
+			UVC_BUFF_OFFSET(buffer->buf.m.offset));
+	addr = (unsigned long)queue->mem + UVC_BUFF_OFFSET(buffer->buf.m.offset);
+#ifdef CONFIG_MMU
 	while (size > 0) {
 		page = vmalloc_to_page((void *)addr);
 		if ((ret = vm_insert_page(vma, start, page)) < 0)
@@ -457,6 +480,7 @@ int uvc_queue_mmap(struct uvc_video_queue *queue, struct vm_area_struct *vma)
 		addr += PAGE_SIZE;
 		size -= PAGE_SIZE;
 	}
+#endif
 
 	vma->vm_ops = &uvc_vm_ops;
 	vma->vm_private_data = buffer;
@@ -464,6 +488,7 @@ int uvc_queue_mmap(struct uvc_video_queue *queue, struct vm_area_struct *vma)
 
 done:
 	mutex_unlock(&queue->mutex);
+	uvc_trace(UVC_TRACE_VIDEO, "queue mmap, ret = %d\n", ret);
 	return ret;
 }
 
@@ -476,11 +501,13 @@ int uvc_video_mmap(struct uvc_streaming *stream, struct vm_area_struct *vma)
 {
 	int ret;
 
-	ret  = uvc_queue_mmap(&stream->queue, vma);
-	if (ret == 0)
-		return ret;
+	if (vma->vm_pgoff & (UVC_STILL_BUF_MASK >> PAGE_SHIFT)) {
+		uvc_printk(KERN_ERR, "mmap on stream->still_queue\n");
+		return uvc_queue_mmap(&stream->still_queue, vma);
+	}
 
-	ret  = uvc_queue_mmap(&stream->still_queue, vma);
+	uvc_printk(KERN_ERR, "mmap on stream->queue\n");
+	ret  = uvc_queue_mmap(&stream->queue, vma);
 	if (ret == 0)
 		return ret;
 
@@ -521,6 +548,36 @@ done:
 	return mask;
 }
 
+#ifndef CONFIG_MMU
+/*
+ * Get unmapped area.
+ *
+ * NO-MMU arch need this function to make mmap() work correctly.
+ */
+unsigned long uvc_queue_get_unmapped_area(struct uvc_video_queue *queue,
+		unsigned long pgoff)
+{
+	struct uvc_buffer *buffer;
+	unsigned int i;
+	unsigned long ret;
+
+	mutex_lock(&queue->mutex);
+	for (i = 0; i < queue->count; ++i) {
+		buffer = &queue->buffer[i];
+		if ((buffer->buf.m.offset >> PAGE_SHIFT) == pgoff)
+			break;
+	}
+	if (i == queue->count) {
+		ret = -EINVAL;
+		goto done;
+	}
+	ret = (unsigned long)queue->mem + UVC_BUFF_OFFSET(buffer->buf.m.offset);
+done:
+	mutex_unlock(&queue->mutex);
+	return ret;
+}
+#endif
+
 /*
  * Enable or disable the video buffers queue.
  *
@@ -554,8 +611,10 @@ int uvc_queue_enable(struct uvc_video_queue *queue, int enable)
 		uvc_queue_cancel(queue, 0);
 		INIT_LIST_HEAD(&queue->mainqueue);
 
-		for (i = 0; i < queue->count; ++i)
+		for (i = 0; i < queue->count; ++i) {
+			queue->buffer[i].error = 0;
 			queue->buffer[i].state = UVC_BUF_STATE_IDLE;
+		}
 
 		queue->flags &= ~UVC_QUEUE_STREAMING;
 	}
@@ -607,8 +666,8 @@ struct uvc_buffer *uvc_queue_next_buffer(struct uvc_video_queue *queue,
 	struct uvc_buffer *nextbuf;
 	unsigned long flags;
 
-	if ((queue->flags & UVC_QUEUE_DROP_INCOMPLETE) &&
-	    buf->buf.length != buf->buf.bytesused) {
+	if ((queue->flags & UVC_QUEUE_DROP_CORRUPTED) && buf->error) {
+		buf->error = 0;
 		buf->state = UVC_BUF_STATE_QUEUED;
 		buf->buf.bytesused = 0;
 		return buf;
@@ -616,6 +675,7 @@ struct uvc_buffer *uvc_queue_next_buffer(struct uvc_video_queue *queue,
 
 	spin_lock_irqsave(&queue->irqlock, flags);
 	list_del(&buf->queue);
+	buf->error = 0;
 	buf->state = UVC_BUF_STATE_DONE;
 	if (!list_empty(&queue->irqqueue))
 		nextbuf = list_first_entry(&queue->irqqueue, struct uvc_buffer,
